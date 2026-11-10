@@ -1,0 +1,4 @@
+node_modules/
+data/token.json
+*.har
+.env

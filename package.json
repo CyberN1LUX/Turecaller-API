@@ -1,0 +1,14 @@
+{
+  "name": "truecaller-api",
+  "version": "1.0.0",
+  "description": "Local Truecaller API server - number search, OTP login, token management & refresh",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT"
+}

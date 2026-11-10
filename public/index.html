@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Truecaller API — Search</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --card: #171a23;
+    --card2: #1e222e;
+    --border: #2a2f3d;
+    --text: #e8eaf0;
+    --muted: #8b92a5;
+    --accent: #4f7cff;
+    --accent2: #3a63d8;
+    --green: #2ecc71;
+    --red: #ff5c6c;
+    --yellow: #f5b942;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    padding: 24px 16px 60px;
+  }
+  .wrap { max-width: 920px; margin: 0 auto; }
+  header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 22px; flex-wrap: wrap; gap: 12px; }
+  .logo { display: flex; align-items: center; gap: 10px; }
+  .logo .icon {
+    width: 38px; height: 38px; border-radius: 10px;
+    background: linear-gradient(135deg, #4f7cff, #7c4fff);
+    display: grid; place-items: center; font-size: 20px;
+  }
+  .logo h1 { font-size: 20px; font-weight: 600; }
+  .logo small { color: var(--muted); font-size: 11px; display: block; font-weight: 400; }
+  .token-pill {
+    padding: 7px 14px; border-radius: 999px; font-size: 12px; cursor: pointer;
+    border: 1px solid var(--border); background: var(--card);
+    display: flex; align-items: center; gap: 8px;
+  }
+  .token-pill .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+  .token-pill.ok .dot { background: var(--green); }
+  .token-pill.err .dot { background: var(--red); }
+
+  .card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 14px; padding: 20px; margin-bottom: 16px;
+  }
+  .search-box { display: flex; gap: 10px; flex-wrap: wrap; }
+  .search-box input[type=text] {
+    flex: 1; min-width: 200px; padding: 13px 16px; font-size: 15px;
+    background: var(--card2); border: 1px solid var(--border); border-radius: 10px;
+    color: var(--text); outline: none;
+  }
+  .search-box input:focus { border-color: var(--accent); }
+  .search-box select {
+    padding: 13px 12px; background: var(--card2); border: 1px solid var(--border);
+    border-radius: 10px; color: var(--text); font-size: 14px; outline: none;
+  }
+  .btn {
+    padding: 13px 26px; border-radius: 10px; border: none; cursor: pointer;
+    font-size: 14px; font-weight: 600; color: #fff;
+    background: var(--accent); transition: background .15s;
+  }
+  .btn:hover { background: var(--accent2); }
+  .btn.ghost { background: transparent; border: 1px solid var(--border); color: var(--muted); }
+  .btn.ghost:hover { color: var(--text); border-color: var(--accent); }
+  .btn:disabled { opacity: .5; cursor: not-allowed; }
+  .hint { color: var(--muted); font-size: 12px; margin-top: 10px; }
+
+  .status-line { margin-top: 12px; font-size: 13px; color: var(--muted); min-height: 18px; }
+  .status-line.err { color: var(--red); }
+  .status-line.ok { color: var(--green); }
+
+  /* result card */
+  .profile { display: flex; gap: 18px; align-items: flex-start; flex-wrap: wrap; }
+  .avatar {
+    width: 84px; height: 84px; border-radius: 50%; object-fit: cover;
+    background: var(--card2); border: 2px solid var(--border); display: grid; place-items: center;
+    font-size: 30px; color: var(--muted); overflow: hidden;
+  }
+  .p-main { flex: 1; min-width: 240px; }
+  .p-name { font-size: 22px; font-weight: 700; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .badge {
+    font-size: 10px; font-weight: 700; padding: 3px 8px; border-radius: 6px;
+    background: #2ecc7122; color: var(--green); text-transform: uppercase; letter-spacing: .5px;
+  }
+  .badge.fraud { background: #ff5c6c22; color: var(--red); }
+  .p-number { color: var(--muted); font-size: 15px; margin-top: 4px; }
+  .p-carrier { color: var(--accent); font-size: 13px; margin-top: 2px; font-weight: 600; }
+  .chips { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+  .chip {
+    font-size: 12px; padding: 5px 10px; border-radius: 999px;
+    background: var(--card2); border: 1px solid var(--border); color: var(--muted);
+  }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; margin-top: 16px; }
+  .kv { background: var(--card2); border-radius: 10px; padding: 12px 14px; }
+  .kv .k { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
+  .kv .v { font-size: 14px; margin-top: 3px; word-break: break-all; }
+
+  .section-title { font-size: 13px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .6px; margin-bottom: 12px; }
+
+  /* bulk */
+  .bulk-item {
+    display: flex; justify-content: space-between; align-items: center; gap: 10px;
+    padding: 12px 14px; background: var(--card2); border-radius: 10px; margin-bottom: 8px;
+  }
+  .bulk-item .num { font-weight: 600; }
+  .bulk-item .nm { color: var(--muted); font-size: 13px; }
+
+  /* auth modal */
+  .modal-bg {
+    position: fixed; inset: 0; background: #000a; display: none;
+    place-items: center; z-index: 50; padding: 16px;
+  }
+  .modal-bg.show { display: grid; }
+  .modal {
+    background: var(--card); border: 1px solid var(--border); border-radius: 16px;
+    width: 100%; max-width: 430px; padding: 24px; max-height: 90vh; overflow-y: auto;
+  }
+  .modal h2 { font-size: 17px; margin-bottom: 4px; }
+  .modal .sub { color: var(--muted); font-size: 12px; margin-bottom: 16px; }
+  .field { margin-bottom: 12px; }
+  .field label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 5px; }
+  .field input {
+    width: 100%; padding: 11px 13px; background: var(--card2); border: 1px solid var(--border);
+    border-radius: 9px; color: var(--text); font-size: 14px; outline: none;
+  }
+  .field input:focus { border-color: var(--accent); }
+  .steps { font-size: 12px; color: var(--muted); margin-top: 10px; line-height: 1.7; }
+  .tabs { display: flex; gap: 6px; margin-bottom: 16px; }
+  .tab {
+    flex: 1; text-align: center; padding: 9px; border-radius: 9px; cursor: pointer; font-size: 13px;
+    background: var(--card2); color: var(--muted); border: 1px solid transparent;
+  }
+  .tab.active { color: var(--text); border-color: var(--accent); background: #4f7cff18; }
+  .actions { display: flex; gap: 8px; margin-top: 6px; }
+  .actions .btn { flex: 1; padding: 11px; }
+  .hidden { display: none; }
+  pre.raw {
+    background: #0b0d13; border: 1px solid var(--border); border-radius: 10px;
+    padding: 14px; font-size: 12px; overflow: auto; max-height: 320px; color: #9fb3d1;
+  }
+  .notfound { text-align: center; padding: 30px 10px; color: var(--muted); }
+  .notfound .big { font-size: 40px; margin-bottom: 8px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="logo">
+      <div class="icon">📞</div>
+      <div>
+        <h1>Truecaller API</h1>
+        <small>localhost:8217 · unofficial</small>
+      </div>
+    </div>
+    <div class="token-pill" id="tokenPill" onclick="openAuth()">
+      <span class="dot"></span><span id="tokenText">checking token…</span>
+    </div>
+  </header>
+
+  <!-- SEARCH -->
+  <div class="card">
+    <div class="search-box">
+      <input type="text" id="q" placeholder="Phone number daalo… jaise 9334120373 ya +919334120373" onkeydown="if(event.key==='Enter')doSearch()">
+      <select id="cc">
+        <option value="IN" selected>IN +91</option>
+        <option value="US">US +1</option>
+        <option value="GB">GB +44</option>
+        <option value="AE">AE +971</option>
+        <option value="SA">SA +966</option>
+        <option value="PK">PK +92</option>
+        <option value="BD">BD +880</option>
+        <option value="NP">NP +977</option>
+        <option value="ID">ID +62</option>
+        <option value="MY">MY +60</option>
+        <option value="PH">PH +63</option>
+        <option value="NG">NG +234</option>
+      </select>
+      <button class="btn" id="searchBtn" onclick="doSearch()">🔍 Search</button>
+    </div>
+    <div class="status-line" id="searchStatus"></div>
+  </div>
+
+  <!-- BULK -->
+  <div class="card">
+    <div class="section-title">Bulk Search <span style="text-transform:none;letter-spacing:0">(max 10 numbers, comma se separate)</span></div>
+    <div class="search-box">
+      <input type="text" id="bulkQ" placeholder="9334120373, 9876543210, 9123456780" onkeydown="if(event.key==='Enter')doBulk()">
+      <button class="btn" id="bulkBtn" onclick="doBulk()">Bulk Search</button>
+    </div>
+    <div id="bulkOut" style="margin-top:14px"></div>
+    <div class="status-line" id="bulkStatus"></div>
+  </div>
+
+  <!-- RESULT -->
+  <div class="card hidden" id="resultCard"></div>
+
+</div>
+
+<!-- AUTH MODAL -->
+<div class="modal-bg" id="authModal">
+  <div class="modal">
+    <h2>🔐 Token / Login</h2>
+    <div class="sub">Search ke liye valid Truecaller token (installationId) chahiye</div>
+    <div id="tokenInfoBox" style="margin-bottom:14px"></div>
+    <div class="tabs">
+      <div class="tab active" data-tab="otp" onclick="switchTab('otp')">OTP Login</div>
+      <div class="tab" data-tab="manual" onclick="switchTab('manual')">Manual Token</div>
+    </div>
+
+    <div id="tab-otp">
+      <div class="field">
+        <label>Phone Number (international)</label>
+        <input type="text" id="loginPhone" placeholder="+919999999999">
+      </div>
+      <div class="actions">
+        <button class="btn" id="otpSendBtn" onclick="sendOtp()">Send OTP</button>
+      </div>
+      <div class="field hidden" id="otpField" style="margin-top:12px">
+        <label>OTP (SMS pe aaya 6-digit)</label>
+        <input type="text" id="loginOtp" placeholder="123456" maxlength="6">
+      </div>
+      <div class="actions hidden" id="otpVerifyRow">
+        <button class="btn" onclick="verifyOtp()">✓ Verify &amp; Save</button>
+        <button class="btn ghost" onclick="resetOtp()">Reset</button>
+      </div>
+      <div class="steps" id="otpMsg"></div>
+    </div>
+
+    <div id="tab-manual" class="hidden">
+      <div class="field">
+        <label>installationId (HAR file / app se milta hai)</label>
+        <input type="text" id="manualToken" placeholder="a2i0t-xxxxxxxx...">
+      </div>
+      <div class="actions">
+        <button class="btn" onclick="saveManual()">Save Token</button>
+      </div>
+      <div class="status-line" id="manualStatus"></div>
+    </div>
+
+    <hr style="border:none;border-top:1px solid var(--border);margin:18px 0 14px">
+    <div class="actions">
+      <button class="btn ghost" onclick="refreshToken()">🔄 Refresh / Validate</button>
+      <button class="btn ghost" style="color:var(--red)" onclick="logout()">Logout</button>
+      <button class="btn ghost" onclick="closeAuth()">Close</button>
+    </div>
+    <div class="status-line" id="authStatus"></div>
+  </div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let reqId = null;
+
+/* ---------- token pill ---------- */
+async function loadTokenStatus() {
+  try {
+    const r = await fetch('/auth/token?live=true');
+    const j = await r.json();
+    const pill = $('tokenPill');
+    const t = j.token || {};
+    if (t.configured) {
+      pill.classList.remove('err'); pill.classList.add('ok');
+      $('tokenText').textContent = `token ${t.installationId} · ${t.valid === true ? 'valid ✓' : t.valid === false ? 'expired ✗' : 'saved'}`;
+    } else {
+      pill.classList.add('err'); pill.classList.remove('ok');
+      $('tokenText').textContent = 'no token — click to login';
+    }
+    renderTokenInfo(t);
+  } catch (e) {
+    $('tokenText').textContent = 'server offline?';
+  }
+}
+
+function renderTokenInfo(t) {
+  const box = $('tokenInfoBox');
+  if (!t || !t.configured) {
+    box.innerHTML = '<div class="chip" style="color:var(--red);border-color:var(--red)">Koi token set nahi hai</div>';
+    return;
+  }
+  box.innerHTML = `<div class="grid" style="grid-template-columns:1fr 1fr;margin:0">
+    <div class="kv"><div class="k">Token</div><div class="v">${t.installationId || '-'}</div></div>
+    <div class="kv"><div class="k">Source</div><div class="v">${t.source || '-'}</div></div>
+    <div class="kv"><div class="k">Saved</div><div class="v">${fmtDate(t.savedAt)}</div></div>
+    <div class="kv"><div class="k">Verified</div><div class="v">${fmtDate(t.lastVerifiedAt)}</div></div>
+  </div>`;
+}
+
+function fmtDate(s) { return s ? new Date(s).toLocaleString() : '-'; }
+
+/* ---------- search ---------- */
+async function doSearch() {
+  const q = $('q').value.trim();
+  const st = $('searchStatus');
+  if (!q) { st.textContent = 'Number daalo pehle 🙂'; st.className = 'status-line err'; return; }
+  $('searchBtn').disabled = true; $('resultCard').classList.add('hidden');
+  st.textContent = 'Searching…'; st.className = 'status-line';
+  try {
+    const r = await fetch(`/search?q=${encodeURIComponent(q)}&countryCode=${$('cc').value}`);
+    const j = await r.json();
+    if (!j.ok) {
+      st.textContent = '✗ ' + (j.message || 'Search fail hui');
+      st.className = 'status-line err';
+      if (j.code === 'NO_TOKEN' || j.code === 'TOKEN_EXPIRED') openAuth();
+      return;
+    }
+    renderResult(j.result);
+    st.textContent = '✓ Found'; st.className = 'status-line ok';
+  } catch (e) {
+    st.textContent = '✗ ' + e.message; st.className = 'status-line err';
+  } finally { $('searchBtn').disabled = false; }
+}
+
+function renderResult(d) {
+  const card = $('resultCard');
+  if (!d || !d.found) {
+    card.innerHTML = '<div class="notfound"><div class="big">👻</div>Number Truecaller par nahi mila</div>';
+    card.classList.remove('hidden'); return;
+  }
+  const initials = (d.name || '?').split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
+  const imgHtml = d.image
+    ? `<img class="avatar" src="${d.image}" onerror="this.outerHTML='<div class=avatar>${initials}</div>'">`
+    : `<div class="avatar">${initials}</div>`;
+  const chips = [];
+  if (d.phone?.carrier) chips.push('📶 ' + d.phone.carrier);
+  if (d.phone?.numberType) chips.push(d.phone.numberType);
+  if (d.address?.city) chips.push('📍 ' + d.address.city);
+  if (d.address?.timeZone) chips.push('🕒 ' + d.address.timeZone);
+  if (d.email) chips.push('✉️ ' + d.email);
+  (d.badges || []).forEach(b => chips.push('⭐ ' + b));
+  (d.electedTags || []).forEach(t => { if (t.value) chips.push('🏷 ' + t.value); });
+
+  card.innerHTML = `
+    <div class="profile">
+      ${imgHtml}
+      <div class="p-main">
+        <div class="p-name">
+          ${escapeHtml(d.name || 'Unknown')}
+          ${d.spam?.isFraud ? '<span class="badge fraud">FRAUD</span>' : ''}
+          ${d.badges?.includes('user') ? '<span class="badge">Truecaller user</span>' : ''}
+        </div>
+        <div class="p-number">${escapeHtml(d.phone?.e164 || '')} <span style="opacity:.6">${escapeHtml(d.phone?.national || '')}</span></div>
+        ${d.phone?.carrier ? `<div class="p-carrier">${escapeHtml(d.phone.carrier)}</div>` : ''}
+        <div class="chips">${chips.map(c => `<span class="chip">${escapeHtml(c)}</span>`).join('')}</div>
+      </div>
+    </div>
+    <div class="grid">
+      ${d.altName ? kv('Alt Name', d.altName) : ''}
+      ${d.about ? kv('About', d.about) : ''}
+      ${d.gender && d.gender !== 'UNKNOWN' ? kv('Gender', d.gender) : ''}
+      ${d.score != null ? kv('Match Score', d.score) : ''}
+      ${d.address?.country ? kv('Country', d.address.country) : ''}
+      ${d.phone?.countryCode ? kv('Country Code', d.phone.countryCode) : ''}
+      ${d.imId ? kv('Truecaller ID', d.imId) : ''}
+    </div>
+    <details style="margin-top:16px">
+      <summary style="cursor:pointer;color:var(--muted);font-size:13px">Raw JSON dekho</summary>
+      <pre class="raw" style="margin-top:10px">${escapeHtml(JSON.stringify(d, null, 2))}</pre>
+    </details>`;
+  card.classList.remove('hidden');
+}
+
+function kv(k, v) { return `<div class="kv"><div class="k">${k}</div><div class="v">${escapeHtml(String(v))}</div></div>`; }
+function escapeHtml(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+/* ---------- bulk ---------- */
+async function doBulk() {
+  const q = $('bulkQ').value.trim();
+  const st = $('bulkStatus');
+  if (!q) { st.textContent = 'Numbers daalo (comma separated)'; st.className = 'status-line err'; return; }
+  $('bulkBtn').disabled = true; $('bulkOut').innerHTML = '';
+  st.textContent = 'Searching…'; st.className = 'status-line';
+  try {
+    const r = await fetch(`/search/bulk?q=${encodeURIComponent(q)}&countryCode=${$('cc').value}`);
+    const j = await r.json();
+    if (!j.ok) { st.textContent = '✗ ' + (j.message || 'fail'); st.className = 'status-line err'; if (j.code === 'NO_TOKEN' || j.code === 'TOKEN_EXPIRED') openAuth(); return; }
+    const items = j.result || [];
+    $('bulkOut').innerHTML = items.map(it => `
+      <div class="bulk-item" onclick="$('q').value='${(it.phone?.e164 || '').replace(/[^+\d]/g, '')}';doSearch()" style="cursor:pointer">
+        <span class="num">${escapeHtml(it.phone?.e164 || '?')}</span>
+        <span class="nm">${it.found ? escapeHtml(it.name || 'no name') + (it.phone?.carrier ? ' · ' + it.phone.carrier : '') : '✗ not found'}</span>
+      </div>`).join('') || '<div class="notfound">Kuch nahi mila</div>';
+    st.textContent = `✓ ${items.filter(i => i.found).length}/${items.length} found`; st.className = 'status-line ok';
+  } catch (e) { st.textContent = '✗ ' + e.message; st.className = 'status-line err'; }
+  finally { $('bulkBtn').disabled = false; }
+}
+
+/* ---------- auth ---------- */
+function openAuth() { $('authModal').classList.add('show'); loadTokenStatus(); }
+function closeAuth() { $('authModal').classList.remove('show'); }
+function switchTab(t) {
+  document.querySelectorAll('.tab').forEach(el => el.classList.toggle('active', el.dataset.tab === t));
+  $('tab-otp').classList.toggle('hidden', t !== 'otp');
+  $('tab-manual').classList.toggle('hidden', t !== 'manual');
+}
+
+async function sendOtp() {
+  const phone = $('loginPhone').value.trim();
+  const st = $('otpMsg');
+  if (!phone) { st.textContent = 'Phone number daalo (+91… format)'; return; }
+  $('otpSendBtn').disabled = true;
+  st.textContent = 'OTP bhej rahe hain…';
+  try {
+    const r = await fetch('/auth/send-otp', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phoneNumber: phone }),
+    });
+    const j = await r.json();
+    if (j.ok) {
+      reqId = j.requestId;
+      st.textContent = '✓ ' + j.message + ' — OTP daalo niche';
+      $('otpField').classList.remove('hidden');
+      $('otpVerifyRow').classList.remove('hidden');
+      $('loginOtp').focus();
+    } else {
+      st.textContent = '✗ ' + (j.message || JSON.stringify(j.raw || j));
+    }
+  } catch (e) { st.textContent = '✗ ' + e.message; }
+  finally { $('otpSendBtn').disabled = false; }
+}
+
+function resetOtp() {
+  reqId = null;
+  $('otpField').classList.add('hidden');
+  $('otpVerifyRow').classList.add('hidden');
+  $('otpMsg').textContent = '';
+  $('loginOtp').value = '';
+}
+
+async function verifyOtp() {
+  const st = $('otpMsg');
+  const otp = $('loginOtp').value.trim();
+  if (!otp || !reqId) { st.textContent = 'Pehle OTP bhejo aur sahi OTP daalo'; return; }
+  try {
+    const r = await fetch('/auth/verify-otp', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phoneNumber: $('loginPhone').value.trim(), requestId: reqId, otp }),
+    });
+    const j = await r.json();
+    if (j.ok) {
+      st.textContent = '✓ Login successful! Token save ho gaya. Ab search karo.';
+      setTimeout(() => { closeAuth(); loadTokenStatus(); }, 900);
+    } else {
+      st.textContent = '✗ ' + (j.message || 'verify fail');
+    }
+  } catch (e) { st.textContent = '✗ ' + e.message; }
+}
+
+async function saveManual() {
+  const t = $('manualToken').value.trim();
+  const st = $('manualStatus');
+  if (!t) { st.textContent = 'installationId daalo'; st.className = 'status-line err'; return; }
+  st.textContent = 'Validating…'; st.className = 'status-line';
+  try {
+    const r = await fetch('/auth/token', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ installationId: t, source: 'manual-ui' }),
+    });
+    const j = await r.json();
+    if (j.ok) { st.textContent = '✓ Token valid hai aur save ho gaya'; st.className = 'status-line ok'; loadTokenStatus(); }
+    else { st.textContent = '✗ ' + j.message; st.className = 'status-line err'; }
+  } catch (e) { st.textContent = '✗ ' + e.message; st.className = 'status-line err'; }
+}
+
+async function refreshToken() {
+  const st = $('authStatus');
+  st.textContent = 'Truecaller se validate kar rahe hain…'; st.className = 'status-line';
+  try {
+    const r = await fetch('/auth/refresh', { method: 'POST' });
+    const j = await r.json();
+    if (j.ok) { st.textContent = '✓ ' + j.message; st.className = 'status-line ok'; }
+    else { st.textContent = '✗ ' + j.message; st.className = 'status-line err'; }
+    loadTokenStatus();
+  } catch (e) { st.textContent = '✗ ' + e.message; st.className = 'status-line err'; }
+}
+
+async function logout() {
+  if (!confirm('Token delete kar dein?')) return;
+  await fetch('/auth/token', { method: 'DELETE' });
+  $('authStatus').textContent = 'Token delete ho gaya';
+  loadTokenStatus();
+}
+
+$('authModal').addEventListener('click', e => { if (e.target.id === 'authModal') closeAuth(); });
+
+/* boot */
+loadTokenStatus();
+setInterval(loadTokenStatus, 60000);
+</script>
+</body>
+</html>
