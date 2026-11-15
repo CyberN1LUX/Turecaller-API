@@ -22,8 +22,8 @@ Default: `0.0.0.0:17712` (code ka port). Override:
 
 ```bash
 PORT=8080 HOST=0.0.0.0 ./install.sh
-HF_TOKEN=hf_xxx ./install.sh          # private HuggingFace bucket ke liye
 INSTALL_SERVICE=0 ./install.sh        # systemd skip, foreground loop
+BUILD_INDEX=1 ./install.sh            # local DB index bhi bana do (one time)
 ```
 
 Manual run:
@@ -76,19 +76,35 @@ Token `main.py` ke andar `TRUECALLER_TOKEN` mein embedded hai. Expire hone par
 (401/403) naya token daalna padega — Truecaller app-flow mein silent refresh
 endpoint nahi hota. Env override: `TRUECALLER_TOKEN`.
 
-## HuggingFace token (DB ke liye zaroori)
+## DB kaise chalta hai (bina HuggingFace token ke bhi)
 
-ICMR/HITEK bucket (`CutehackX/icrm-hitek-full-db-mixed-bucket`) private hai —
-bina token ke HuggingFace **HTTP 401** deta hai aur DB lookup empty rehta hai.
-`HF_TOKEN` (ya `HUGGINGFACE_TOKEN`) set karo:
+HuggingFace ne saare public ICMR/HITEK sorted-index repos
+(`Kzr0xx/icrm-hitek-full-db-mixed`, `CutehackX/icrm-hitek-full-db-mixed-bucket`,
+`CutehackX/hitek-data-bucket`) **content policy** ke naam par disable kar diye
+hain — un par har file request `401` deti hai. Ye humari taraf se fix nahi hota.
+
+Lekin ek public bucket abhi bhi khula hai:
+`CutehackX/icmr-parquet-bucket` (poora raw table, ~12 GB, 72 crore rows).
+Usse **ek baar** local index bana lo — uske baad API local mode mein chalta hai
+aur koi token nahi chahiye:
 
 ```bash
-HF_TOKEN=hf_xxxxxxxx ./install.sh
+python main.py --build-index          # ek baar (12GB download + sort)
+python main.py                        # phir normal start, local mode
 ```
 
-Code DuckDB ka `HUGGINGFACE` secret banata hai, isliye token sirf HF ko jata hai.
-`/health` mein `hf_token_set` aur `/FetchData` ke `meta.db_error` se pata chalta
-hai ki DB side theek chal raha hai ya nahi.
+`install.sh` se ek hi command mein:
+
+```bash
+BUILD_INDEX=1 ./install.sh
+```
+
+Index yahan banta hai: `data/idx_phone.parquet` (phoneNumber se sorted, isliye
+lookup instant). `/health` mein `db.local_index: true` dikhega.
+
+Agar index nahi hai aur token bhi nahi, to API dhang se degrade karta hai:
+`Data` empty rehta hai, `meta.db: "unavailable"`, HTTP 200 — koi hang/500 nahi.
+Sirf Truecaller wala part aata hai.
 
 ## CallApp
 
@@ -108,5 +124,5 @@ journalctl -u hitek-truecaller -f
 ## Notes
 
 - Ye unofficial endpoints hain; heavy use pe Truecaller account block ho sakta hai.
-- Remote DuckDB lookup pehli baar 30–90s le sakta hai, phir cache hota hai.
+- DB: local index (`--build-index`) ke baad lookups instant; bina index ke DB empty.
 - Port/host env se change hote hain: `PORT`, `HOST`.

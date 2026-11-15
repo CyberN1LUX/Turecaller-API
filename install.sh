@@ -57,6 +57,13 @@ else
   pip install fastapi "uvicorn[standard]" duckdb
 fi
 
+# --- 3b. optional one-time local DB index (no token needed) -------------------
+if [ "${BUILD_INDEX:-0}" = "1" ]; then
+  say "Local DB index build (one time, ~12GB download). Thoda time lagega..."
+  python "$DIR/main.py" --build-index || die "index build fail hua"
+  say "Local index ready: $DIR/data/idx_phone.parquet"
+fi
+
 # --- 4. systemd service (non-stop) -------------------------------------------
 if [ "${INSTALL_SERVICE:-1}" = "1" ] && [ "$(id -u)" = "0" ] && command -v systemctl >/dev/null 2>&1; then
   say "systemd service install kar raha hoon: ${APP_NAME}.service"

@@ -1,19 +1,19 @@
 """HITEK / ICMR Data Gateway.
 
-FastAPI + DuckDB over the public HuggingFace bucket:
-    CutehackX/icrm-hitek-full-db-mixed-bucket
+FastAPI + DuckDB, single file.  DB + Truecaller in one merged response.
 
-The bucket contains prebuilt Parquet indexes sorted by phoneNumber and
-aadharNumber.  The app works in two modes:
+DB modes
+--------
+local (recommended, no token needed)
+    Build a phone-sorted index once from the public bucket:
+        python main.py --build-index
+    It writes data/idx_phone.parquet and every lookup is instant afterwards.
 
-remote (default when no local files are present)
-    Streams the sorted index parts straight from HuggingFace.  No 227 GB
-    download is required, but the first lookup that touches a new row group
-    is network-bound (roughly 30-90 seconds).  Results are cached.
-
-local
-    If idx_phone*.parquet / idx_aadhar*.parquet / part*.parquet exist in
-    ICMR_DATA_DIR (or next to this file), DuckDB queries those files instead.
+remote (needs HF_TOKEN)
+    If data/ is empty, the app streams the prebuilt HuggingFace sorted index
+    parts.  Those datasets are currently disabled by HuggingFace (HTTP 401), so
+    without a token/local index the DB half degrades gracefully: `Data` stays
+    empty and `meta.db` is "unavailable".  Truecaller keeps working.
 
 Endpoints
 ---------
@@ -33,6 +33,7 @@ import gzip
 import json
 import os
 import re
+import sys
 import threading
 import time
 import urllib.error
@@ -97,6 +98,17 @@ TRUECALLER_ENABLED = os.environ.get("TRUECALLER_ENABLED", "1") == "1"
 # HuggingFace token - the ICMR/HITEK bucket is private (HTTP 401 without it).
 # DuckDB uses it through a HUGGINGFACE secret. Env: HF_TOKEN or HUGGINGFACE_TOKEN.
 HF_TOKEN = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_TOKEN") or ""
+
+# Public (tokenless) raw ICMR table.  The sorted idx_phone.*.parquet parts live in
+# a gated dataset, but this HuggingFace bucket serves the full 12 GB table with
+# no token, so a fast local index can be built once:
+#     python main.py --build-index
+PUBLIC_SCAN_URL = os.environ.get("ICMR_SCAN_URL") or (
+    "https://huggingface.co/buckets/CutehackX/icmr-parquet-bucket/resolve/icmr.parquet"
+)
+# A remote full scan downloads the phone column on every cold lookup, so it is
+# opt-in (only useful on a very fast link).
+ALLOW_REMOTE_SCAN = os.environ.get("ICMR_ALLOW_SCAN", "0") == "1"
 
 # ---------------------------------------------------------------------------
 # CallApp (needs the real search request from a capture - see /callapp)
@@ -175,6 +187,11 @@ def _bucket_url(name: str) -> str:
 
 _REMOTE_PHONE = [_bucket_url(f"idx_phone.{i}.parquet") for i in range(PHONE_PARTS)]
 _REMOTE_AADHAR = [_bucket_url(f"idx_aadhar.{i}.parquet") for i in range(AADHAR_PARTS)]
+_REMOTE_SCAN = [PUBLIC_SCAN_URL + "?download=true"] if ALLOW_REMOTE_SCAN else []
+
+
+def _log(msg: str) -> None:
+    print(msg, file=sys.stderr, flush=True)
 
 
 # ---------------------------------------------------------------------------
@@ -591,10 +608,22 @@ def _query_index(kind: str, value: str, limit: int,
         # missing.  Do not retry on timeouts: that would multiply the wait.
         msg = str(exc).lower()
         missing_part = any(s in msg for s in ("404", "not found", "no files"))
+        needs_auth = any(s in msg for s in ("401", "403", "unauthorized", "forbidden"))
         all_remote = _REMOTE_PHONE if kind == "phone" else _REMOTE_AADHAR
         if MODE == "remote" and missing_part and len(paths) < len(all_remote):
             rows = _exact(field, value, all_remote, fetch_limit, source)
             paths = all_remote
+        elif needs_auth and _REMOTE_SCAN:
+            rows = _exact(field, value, _REMOTE_SCAN, fetch_limit, source)
+            paths = _REMOTE_SCAN
+        elif needs_auth:
+            # No token and no local index: degrade quietly instead of failing
+            # the whole request (the Truecaller half still works).
+            _log(f"[db] {kind} index is gated: {exc}")
+            return {
+                "results": [], "raw_count": 0, "parts_queried": 0,
+                "index": None, "unavailable": "db_source_requires_token",
+            }
         else:
             raise
     capped = _cap_duplicates(rows)[:limit]
@@ -622,8 +651,14 @@ def _query_other(value: str, limit: int,
             "index": "local-scan",
         }
     if ALLOW_REMOTE_OTHER_SCAN:
-        rows = _exact("otherNumber", value, _REMOTE_PHONE,
-                      limit * DUPLICATE_CAP + 20, source)
+        try:
+            rows = _exact("otherNumber", value, _REMOTE_PHONE,
+                          limit * DUPLICATE_CAP + 20, source)
+        except Exception as exc:
+            if any(s in str(exc).lower() for s in ("401", "403", "unauthorized", "forbidden")):
+                return {"results": [], "raw_count": 0, "parts_queried": 0,
+                        "index": None, "skipped": "db_source_requires_token"}
+            raise
         return {
             "results": _cap_duplicates(rows)[:limit],
             "raw_count": len(rows),
@@ -859,8 +894,10 @@ def health():
     return {
         "status": "ok",
         "mode": MODE,
-        "bucket": BUCKET if MODE == "remote" else None,
-        "data_dir": _DATA_DIR,
+        "db": {
+            "ready": MODE == "local" or bool(HF_TOKEN) or bool(_REMOTE_SCAN),
+            "local_index": bool(_LOCAL_PHONE or _LOCAL_SCAN_FILES),
+        },
         "indexes": {
             "phone": bool(_LOCAL_PHONE) if MODE == "local" else True,
             "aadhar": bool(_LOCAL_AADHAR) if MODE == "local" else True,
@@ -927,6 +964,7 @@ def fetch_data(
         alt_data: dict[str, Any] = {"results": [], "raw_count": 0}
         aadhar_data: dict[str, Any] = {"results": [], "raw_count": 0}
         db_error: str | None = None
+        db_unavailable: str | None = None
 
         try:
             for v in _phone_variants(digits):
@@ -941,10 +979,17 @@ def fetch_data(
                     aadhar_data = _query_index("aadhar", v, 20, None)
                     if aadhar_data["results"]:
                         break
+            if not (main_data["results"] or aadhar_data["results"] or alt_data["results"]):
+                db_unavailable = (
+                    main_data.get("unavailable")
+                    or aadhar_data.get("unavailable")
+                    or alt_data.get("unavailable")
+                )
         except HTTPException:
             raise
         except Exception as exc:
             db_error = str(exc)
+            _log(f"[fetch] db error: {exc}")
 
         tc_result = None
         if truecaller:
@@ -965,8 +1010,14 @@ def fetch_data(
             }
             if db_error:
                 body["status"] = "error"
-                body["message"] = f"Database processing error: {db_error}"
-            return JSONResponse(status_code=404 if not db_error else 500, content=body)
+                body["message"] = "Database processing error."
+            elif db_unavailable:
+                body["status"] = "partial"
+                body["message"] = "DB records are not available on this deployment."
+            return JSONResponse(
+                status_code=404 if not (db_error or db_unavailable) else 200,
+                content=body,
+            )
 
         data: dict[str, Any] = {
             "Main_Records": main_data["results"],
@@ -981,24 +1032,12 @@ def fetch_data(
             "Data": data,
             "Truecaller": tc_result,
             "meta": {
-                "mode": MODE,
-                "index": main_data.get("index") or aadhar_data.get("index") or alt_data.get("index"),
-                "parts_queried": main_data.get("parts_queried", 0),
+                "db": "unavailable" if db_unavailable else "ok",
                 "elapsed_ms": round((time.time() - t0) * 1000, 1),
-                "raw_matches": {
-                    "phoneNumber": main_data["raw_count"],
-                    "otherNumber": alt_data["raw_count"],
-                    "aadharNumber": aadhar_data["raw_count"],
-                },
-                "dedup_cap": DUPLICATE_CAP,
                 "cached": False,
-                "alt_lookup": alt_data.get("index") or alt_data.get("skipped"),
-                "db_error": db_error,
                 "truecaller": {
-                    "enabled": bool(truecaller),
                     "ok": bool(tc_result and tc_result.get("ok")),
                     "status": (tc_result or {}).get("status"),
-                    "error": (tc_result or {}).get("error"),
                 },
             },
             "Developer": "cybern1lux",
@@ -1010,11 +1049,12 @@ def fetch_data(
     except HTTPException:
         raise
     except Exception as e:
+        _log(f"[fetch] fatal: {e}")
         return JSONResponse(
             status_code=500,
             content={
                 "status": "error",
-                "message": f"Database processing error: {str(e)}",
+                "message": "Database processing error.",
                 "Developer": "cybern1lux",
             },
         )
@@ -1097,7 +1137,65 @@ def search_parallel(req: BatchRequest):
     return _pretty({"searches": len(jobs), "parallelism": workers, "results": results}, True)
 
 
+# ---------------------------------------------------------------------------
+# One-time local index build (works without any HuggingFace token)
+# ---------------------------------------------------------------------------
+
+BUILD_COLUMNS = [
+    "name", "fathersName", "phoneNumber", "otherNumber", "aadharNumber",
+    "address", "district", "pincode", "state", "town",
+]
+
+
+def build_index(source: str | None = None, out_dir: str | None = None) -> str:
+    """Build a phone-sorted local Parquet index from the public ICMR table.
+
+        python main.py --build-index
+
+    Downloads the public table once and writes data/idx_phone.parquet, sorted by
+    phoneNumber so DuckDB can prune row groups.  After that the API starts in
+    local mode and lookups are instant, with no token of any kind.
+    """
+    src = source or PUBLIC_SCAN_URL
+    out_dir = os.path.abspath(out_dir or os.path.join(BASE, "data"))
+    os.makedirs(out_dir, exist_ok=True)
+    out = os.path.join(out_dir, "idx_phone.parquet").replace("\\", "/")
+
+    con = duckdb.connect()
+    con.execute("INSTALL httpfs; LOAD httpfs;")
+    con.execute("SET http_timeout = 3600")
+    con.execute(f"SET threads = {max(4, THREADS_PER_CONN)}")
+    con.execute("SET memory_limit = " + _sql_literal(
+        os.environ.get("ICMR_BUILD_MEMORY", "4GB")))
+    con.execute("SET temp_directory = " + _sql_literal(out_dir.replace("\\", "/")))
+    cols = ", ".join(BUILD_COLUMNS)
+    _log(f"[build] source : {src}")
+    _log(f"[build] output : {out}")
+    _log("[build] reading + sorting, this is the slow part (one time only)...")
+    con.execute(
+        f"COPY (SELECT {cols}, 'icmr' AS source FROM read_parquet({_sql_literal(src)}) "
+        f"WHERE phoneNumber IS NOT NULL AND phoneNumber <> '' "
+        f"ORDER BY phoneNumber) TO {_sql_literal(out)} "
+        f"(FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 100000)"
+    )
+    con.close()
+    _log(f"[build] done. Local index ready: {out}")
+    _log("[build] restart the API: python main.py")
+    return out
+
+
 if __name__ == "__main__":
+    if "--build-index" in sys.argv:
+        def _arg(name: str) -> str | None:
+            if name in sys.argv:
+                i = sys.argv.index(name)
+                if i + 1 < len(sys.argv):
+                    return sys.argv[i + 1]
+            return None
+
+        build_index(_arg("--source"), _arg("--out"))
+        raise SystemExit(0)
+
     import uvicorn
 
     # Port code mein set hai (default 17712), env se override ho sakta hai.
