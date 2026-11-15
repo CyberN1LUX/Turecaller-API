@@ -56,8 +56,14 @@ _DATA_DIR = os.environ.get("ICMR_DATA_DIR") or (
     os.path.join(BASE, "data") if os.path.isdir(os.path.join(BASE, "data")) else BASE
 )
 
-BUCKET = os.environ.get("ICMR_BUCKET", "CutehackX/icrm-hitek-full-db-mixed-bucket")
-BUCKET_BASE = f"https://huggingface.co/buckets/{BUCKET}/resolve"
+BUCKET = os.environ.get("ICMR_BUCKET", "Kzr0xx/icrm-hitek-full-db-mixed")
+# HF dataset URL (same source the osint build uses). Override with
+# ICMR_HF_INDEX_BASE if you have a working mirror.
+BUCKET_BASE = (
+    os.environ.get("ICMR_HF_INDEX_BASE")
+    or os.environ.get("ICMR_BUCKET_BASE")
+    or f"https://huggingface.co/datasets/{BUCKET}/resolve/main"
+).rstrip("/")
 
 PARALLELISM = int(os.environ.get("ICMR_PARALLEL", "8"))
 THREADS_PER_CONN = int(os.environ.get("ICMR_THREADS_PER_CONN", "8"))
@@ -777,143 +783,67 @@ async def custom_http_exception_handler(request: Request, exc: StarletteHTTPExce
     )
 
 
-LANDING_PAGE_HTML = r"""
-<!DOCTYPE html>
+LANDING_PAGE_HTML = r"""<!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>HITEK Data Gateway - LIVE</title>
-    <style>
-        body { margin: 0; overflow: hidden; background-color: #050505; color: #00ffcc; font-family: 'Courier New', Courier, monospace; }
-        #canvas-container { position: fixed; inset: 0; z-index: -1; }
-        .overlay {
-            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-            width: min(900px, 92vw); max-height: 90vh; overflow: auto;
-            text-align: center; background: rgba(10, 10, 10, 0.9); padding: 32px;
-            border: 1px solid #00ffcc; border-radius: 12px;
-            box-shadow: 0 0 30px rgba(0, 255, 204, 0.3); backdrop-filter: blur(5px);
-        }
-        h1 { margin: 0 0 10px 0; font-size: 2.4em; text-transform: uppercase; letter-spacing: 4px; text-shadow: 0 0 15px #00ffcc; }
-        p { font-size: 1em; margin: 6px 0; color: #ccc; }
-        .highlight { color: #00ffcc; font-weight: bold; }
-        .status-box {
-            margin: 16px 0; font-weight: bold; padding: 10px; border-radius: 8px;
-            background: rgba(0, 255, 204, 0.1); border: 1px solid rgba(0, 255, 204, 0.5);
-            font-size: 0.95em;
-        }
-        .blinking { animation: blinker 1.5s linear infinite; display: inline-block; }
-        @keyframes blinker { 50% { opacity: 0; } }
-        form { display: flex; gap: 8px; justify-content: center; margin: 18px 0 8px; flex-wrap: wrap; }
-        input {
-            flex: 1 1 260px; min-width: 220px; padding: 12px 14px; border-radius: 8px;
-            border: 1px solid #00ffcc; background: #07110f; color: #00ffcc;
-            font: inherit; font-size: 1.05em; outline: none;
-        }
-        button {
-            padding: 12px 22px; border-radius: 8px; border: 1px solid #00ffcc;
-            background: #00ffcc; color: #04110e; font: inherit; font-weight: bold; cursor: pointer;
-        }
-        button:disabled { opacity: 0.5; cursor: wait; }
-        pre {
-            text-align: left; background: #07110f; border: 1px solid #123; border-radius: 8px;
-            padding: 12px; max-height: 42vh; overflow: auto; color: #bfffe9;
-            font-size: 0.82em; white-space: pre-wrap; word-break: break-word;
-        }
-        .hint { color: #888; font-size: 0.82em; }
-        a { color: #00ffcc; }
-    </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Data Gateway</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+           background: #050505; color: #e6fff9;
+           font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+    main { width: min(760px, 92vw); padding: 24px; border: 1px solid #00ffcc55; border-radius: 12px;
+           background: #0a0f0d; box-shadow: 0 0 24px #00ffcc22; }
+    h1 { margin: 0 0 4px; font-size: 1.4rem; letter-spacing: 1px; }
+    p { margin: 0 0 14px; color: #8fa8a2; font-size: .85rem; }
+    form { display: flex; gap: 8px; flex-wrap: wrap; }
+    input { flex: 1 1 220px; padding: 11px 12px; border-radius: 8px; border: 1px solid #00ffcc66;
+            background: #07110f; color: #e6fff9; font: inherit; outline: none; }
+    button { padding: 11px 20px; border-radius: 8px; border: 0; background: #00ffcc; color: #04110e;
+             font: inherit; font-weight: 700; cursor: pointer; }
+    button:disabled { opacity: .5; cursor: wait; }
+    pre { margin: 14px 0 0; padding: 12px; max-height: 55vh; overflow: auto; border-radius: 8px;
+          background: #07110f; border: 1px solid #123; color: #bfffe9; font-size: .78rem;
+          white-space: pre-wrap; word-break: break-word; }
+  </style>
 </head>
 <body>
-    <div id="canvas-container"></div>
-    <div class="overlay">
-        <h1>SYSTEM ONLINE</h1>
-        <p>API Gateway is <span class="highlight">Active &amp; Secured</span></p>
-        <p>Source: <span class="highlight" id="mode">checking...</span></p>
-        <div class="status-box">
-            <span class="blinking" style="color: #00ffcc;">●</span> HTTP 200 OK - LISTENING FOR QUERIES
-        </div>
-        <form id="search-form">
-            <input id="number" name="number" inputmode="numeric" autocomplete="off"
-                   placeholder="Enter phone number (e.g. 9732226783)" />
-            <button id="go" type="submit">FETCH</button>
-        </form>
-        <p class="hint">
-            Response = DB records first (<code>Data</code>), then the Truecaller
-            result (<code>Truecaller</code>) — one merged JSON.<br>
-            Remote mode streams the sorted HuggingFace index. The first lookup that
-            touches a new row group can take 30-90s; repeated queries are cached.
-        </p>
-        <pre id="out">Ready. Try 9732226783</pre>
-    </div>
-
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <script>
-        try {
-            const scene = new THREE.Scene();
-            const camera = new THREE.PerspectiveCamera(75, innerWidth / innerHeight, 0.1, 2000);
-            const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-            renderer.setSize(innerWidth, innerHeight);
-            document.getElementById('canvas-container').appendChild(renderer.domElement);
-
-            const geometry = new THREE.BufferGeometry();
-            const vertices = [];
-            for (let i = 0; i < 8000; i++) {
-                vertices.push(THREE.MathUtils.randFloatSpread(3000));
-                vertices.push(THREE.MathUtils.randFloatSpread(3000));
-                vertices.push(THREE.MathUtils.randFloatSpread(3000));
-            }
-            geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
-            const material = new THREE.PointsMaterial({ color: 0x00ffcc, size: 2.5, transparent: true, opacity: 0.8 });
-            const points = new THREE.Points(geometry, material);
-            scene.add(points);
-            camera.position.z = 1200;
-
-            (function animate() {
-                requestAnimationFrame(animate);
-                points.rotation.x += 0.0005;
-                points.rotation.y += 0.001;
-                renderer.render(scene, camera);
-            })();
-
-            addEventListener('resize', () => {
-                camera.aspect = innerWidth / innerHeight;
-                camera.updateProjectionMatrix();
-                renderer.setSize(innerWidth, innerHeight);
-            });
-        } catch (e) {
-            console.warn('three.js unavailable', e);
-        }
-
-        fetch('/health').then(r => r.json()).then(h => {
-            document.getElementById('mode').textContent =
-                (h.mode || 'unknown').toUpperCase() + (h.bucket ? ' · ' + h.bucket : '');
-        }).catch(() => {});
-
-        const form = document.getElementById('search-form');
-        const out = document.getElementById('out');
-        const go = document.getElementById('go');
-
-        form.addEventListener('submit', async (ev) => {
-            ev.preventDefault();
-            const n = document.getElementById('number').value.trim();
-            if (!n) return;
-            go.disabled = true;
-            out.textContent = 'Searching… the first remote lookup can take 30-90 seconds.';
-            const t0 = performance.now();
-            try {
-                const r = await fetch('/FetchData?Number=' + encodeURIComponent(n));
-                const j = await r.json();
-                out.textContent = 'HTTP ' + r.status + ' · ' +
-                    Math.round(performance.now() - t0) + ' ms\n\n' +
-                    JSON.stringify(j, null, 2);
-            } catch (e) {
-                out.textContent = 'Request failed: ' + e;
-            } finally {
-                go.disabled = false;
-            }
-        });
-    </script>
+  <main>
+    <h1>DATA GATEWAY</h1>
+    <p>Phone lookup &middot; DB + Truecaller</p>
+    <form id="f">
+      <input id="n" inputmode="numeric" autocomplete="off"
+             placeholder="Phone number (e.g. 9334120373)" />
+      <button id="b" type="submit">FETCH</button>
+    </form>
+    <pre id="o">Ready.</pre>
+  </main>
+  <script>
+    const f = document.getElementById('f');
+    const o = document.getElementById('o');
+    const b = document.getElementById('b');
+    f.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const n = document.getElementById('n').value.trim();
+      if (!n) return;
+      b.disabled = true;
+      o.textContent = 'Searching...';
+      const t0 = performance.now();
+      try {
+        const r = await fetch('/FetchData?Number=' + encodeURIComponent(n));
+        o.textContent = 'HTTP ' + r.status + ' \u00b7 ' +
+          Math.round(performance.now() - t0) + ' ms\n\n' +
+          JSON.stringify(await r.json(), null, 2);
+      } catch (err) {
+        o.textContent = 'Request failed: ' + err;
+      } finally {
+        b.disabled = false;
+      }
+    });
+  </script>
 </body>
 </html>
 """
