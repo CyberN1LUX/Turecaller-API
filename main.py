@@ -88,6 +88,10 @@ TRUECALLER_ACCOUNT = "https://account-asia-south1.truecaller.com"
 TRUECALLER_TIMEOUT = int(os.environ.get("TRUECALLER_TIMEOUT", "25"))
 TRUECALLER_ENABLED = os.environ.get("TRUECALLER_ENABLED", "1") == "1"
 
+# HuggingFace token - the ICMR/HITEK bucket is private (HTTP 401 without it).
+# DuckDB uses it through a HUGGINGFACE secret. Env: HF_TOKEN or HUGGINGFACE_TOKEN.
+HF_TOKEN = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_TOKEN") or ""
+
 # ---------------------------------------------------------------------------
 # CallApp (needs the real search request from a capture - see /callapp)
 # ---------------------------------------------------------------------------
@@ -219,6 +223,12 @@ def _new_conn() -> duckdb.DuckDBPyConnection:
         con.execute("INSTALL httpfs; LOAD httpfs;")
         con.execute(f"SET http_timeout = {HTTP_TIMEOUT_S}")
         con.execute(f"SET http_retries = {HTTP_RETRIES}")
+        if HF_TOKEN:
+            # Private/gated bucket needs auth. DuckDB sends this token to HF.
+            con.execute(
+                "CREATE OR REPLACE SECRET hf_bucket (TYPE HUGGINGFACE, TOKEN "
+                + _sql_literal(HF_TOKEN) + ")"
+            )
     if _LOCAL_SCAN_FILES:
         files = ", ".join(_sql_literal(p) for p in _LOCAL_SCAN_FILES)
         con.execute(f"CREATE VIEW people AS SELECT * FROM read_parquet([{files}])")
@@ -936,6 +946,7 @@ def health():
         "cache_ttl_s": CACHE_TTL,
         "cache_entries": len(_cache),
         "columns": SEARCH_FIELDS,
+        "hf_token_set": bool(HF_TOKEN),
         "truecaller": {
             "enabled": TRUECALLER_ENABLED,
             "token_set": bool(TRUECALLER_TOKEN),
@@ -1052,6 +1063,7 @@ def fetch_data(
                 "dedup_cap": DUPLICATE_CAP,
                 "cached": False,
                 "alt_lookup": alt_data.get("index") or alt_data.get("skipped"),
+                "db_error": db_error,
                 "truecaller": {
                     "enabled": bool(truecaller),
                     "ok": bool(tc_result and tc_result.get("ok")),
@@ -1061,7 +1073,8 @@ def fetch_data(
             },
             "Developer": "cybern1lux",
         }
-        _cache_set(cache_key, payload)
+        if not db_error:
+            _cache_set(cache_key, payload)
         return payload
 
     except HTTPException:

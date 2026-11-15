@@ -22,7 +22,8 @@ Default: `0.0.0.0:17712` (code ka port). Override:
 
 ```bash
 PORT=8080 HOST=0.0.0.0 ./install.sh
-INSTALL_SERVICE=0 ./install.sh     # systemd skip, foreground loop
+HF_TOKEN=hf_xxx ./install.sh          # private HuggingFace bucket ke liye
+INSTALL_SERVICE=0 ./install.sh        # systemd skip, foreground loop
 ```
 
 Manual run:
@@ -74,6 +75,20 @@ Truecaller part band karna ho: `?truecaller=false`.
 Token `main.py` ke andar `TRUECALLER_TOKEN` mein embedded hai. Expire hone par
 (401/403) naya token daalna padega — Truecaller app-flow mein silent refresh
 endpoint nahi hota. Env override: `TRUECALLER_TOKEN`.
+
+## HuggingFace token (DB ke liye zaroori)
+
+ICMR/HITEK bucket (`CutehackX/icrm-hitek-full-db-mixed-bucket`) private hai —
+bina token ke HuggingFace **HTTP 401** deta hai aur DB lookup empty rehta hai.
+`HF_TOKEN` (ya `HUGGINGFACE_TOKEN`) set karo:
+
+```bash
+HF_TOKEN=hf_xxxxxxxx ./install.sh
+```
+
+Code DuckDB ka `HUGGINGFACE` secret banata hai, isliye token sirf HF ko jata hai.
+`/health` mein `hf_token_set` aur `/FetchData` ke `meta.db_error` se pata chalta
+hai ki DB side theek chal raha hai ya nahi.
 
 ## CallApp
 

@@ -20,6 +20,7 @@ set -euo pipefail
 APP_NAME="${APP_NAME:-hitek-truecaller}"
 HOST="${HOST:-0.0.0.0}"
 PORT="${PORT:-17712}"
+HF_TOKEN="${HF_TOKEN:-}"
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VENV="$DIR/.venv"
 PY="${PYTHON:-python3}"
@@ -59,6 +60,8 @@ fi
 # --- 4. systemd service (non-stop) -------------------------------------------
 if [ "${INSTALL_SERVICE:-1}" = "1" ] && [ "$(id -u)" = "0" ] && command -v systemctl >/dev/null 2>&1; then
   say "systemd service install kar raha hoon: ${APP_NAME}.service"
+  HF_ENV=""
+  if [ -n "$HF_TOKEN" ]; then HF_ENV="Environment=HF_TOKEN=$HF_TOKEN"; fi
   cat > "/etc/systemd/system/${APP_NAME}.service" <<EOF
 [Unit]
 Description=HITEK + Truecaller Data Gateway
@@ -70,6 +73,7 @@ Type=simple
 WorkingDirectory=$DIR
 Environment=HOST=$HOST
 Environment=PORT=$PORT
+$HF_ENV
 ExecStart=$VENV/bin/uvicorn main:app --host $HOST --port $PORT
 Restart=always
 RestartSec=3
