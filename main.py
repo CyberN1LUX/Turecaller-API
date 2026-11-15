@@ -1157,4 +1157,7 @@ def search_parallel(req: BatchRequest):
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run("main:app", host="127.0.0.1", port=17712, reload=False)
+    # Port code mein set hai (default 17712), env se override ho sakta hai.
+    _host = os.environ.get("HOST", "0.0.0.0")
+    _port = int(os.environ.get("PORT", "17712"))
+    uvicorn.run(app, host=_host, port=_port, reload=False)
